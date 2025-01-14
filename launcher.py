@@ -86,21 +86,47 @@ async def generate_and_run_bat(java_path, game_dir, version, username, uuid, acc
             bat_file.write("echo Command: " + command_str + "\n")
             bat_file.write(command_str + "\n")
             bat_file.write("pause\n")
-
+        # 检测是否有options.txt文件
+        options_path = os.path.join(game_dir, 'options.txt')
+        if not os.path.exists(options_path):
+            options = {
+                "lang": "zh_CN",
+                "gamma": "1.0",
+                "maxFps": "260",
+                "narrator": 0
+            }
+            with open(options_path, "w", encoding="utf-8") as options_file:
+                for key, value in options.items():
+                    options_file.write(f"{key}:{value}\n")
         print(f"Batch file created: {bat_file_path}")
 
         # 运行 .bat 文件并将输出打印到控制台
         printed_logs = set()
-        with subprocess.Popen([bat_file_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="mbcs") as proc:
-            for line in proc.stdout:
-                formatted_line = format_log4j_event(line, printed_logs)
-                if formatted_line:
-                    print(formatted_line, end='')
+        with subprocess.Popen([bat_file_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="latin-1") as proc:
+            if proc.stdout:
+                print("Minecraft启动中...")
+                for line in proc.stdout:
+                    line = line.replace('\r\n', '\n').replace('\r', '\n')  # 处理不同的换行符
+                    formatted_line = format_log4j_event(line, printed_logs)
+                    if formatted_line:
+                        print(formatted_line, end='')
 
-            # 等待子进程结束
-            proc.wait()
+            # 等待子进程结束并获取输出
+            stdout, stderr = proc.communicate()
+            print("游戏进程已结束")
+            if stdout:
+                for line in stdout.splitlines():
+                    line = line.replace('\r\n', '\n').replace('\r', '\n')  # 处理不同的换行符
+                    formatted_line = format_log4j_event(line, printed_logs)
+                    if formatted_line:
+                        print(formatted_line, end='')
 
 async def launch_game():
+    # 先探测是否有versions
+    if not os.path.exists('.minecraft/versions'):
+        print("没有找到Minecraft版本，请先下载")
+        return
+    
     mode = input("请选择启动模式（1：离线启动，2：使用正版账户）：")
     if mode == '1':
         username = input("请输入用户名：")

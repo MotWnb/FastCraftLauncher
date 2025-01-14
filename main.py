@@ -29,4 +29,9 @@ async def main():
         print("无效的选择")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    while True:
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            print("\n程序已退出")
+            break
