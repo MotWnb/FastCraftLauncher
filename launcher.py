@@ -1,5 +1,6 @@
 import os
 import json
+import platform
 import uuid as uuid_lib
 import subprocess
 import re
@@ -30,7 +31,7 @@ async def find_java():
             break
     return java_path
 
-async def generate_and_run_bat(java_path, game_dir, version, username, uuid, access_token):
+async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, uuid, access_token):
     async with aiohttp.ClientSession() as session:
         # 获取版本json文件
         version_manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest.json"
@@ -40,20 +41,90 @@ async def generate_and_run_bat(java_path, game_dir, version, username, uuid, acc
 
         log4j_path = f"{game_dir}\\logs\\{version_json.get('logging', {}).get('client', {}).get('file', {}).get('id')}"
         
-        # 配置JVM参数
-        jvm_args = [
-            "-XX:+UseG1GC",
-            "-XX:-UseAdaptiveSizePolicy",
-            "-XX:-OmitStackTraceInFastThrow",
-            "-Djdk.lang.Process.allowAmbiguousCommands=true",
-            "-Dfml.ignoreInvalidMinecraftCertificates=True",
-            "-Dfml.ignorePatchDiscrepancies=True",
-            "-Dlog4j2.formatMsgNoLookups=true",
-            f"-Djava.library.path={os.path.join(game_dir, 'versions', version, f'{version}-natives')}",
-            f"-Dlog4j.configurationFile={log4j_path}",
-        ]
+        version_folder = os.path.join(game_dir, 'versions', version)
 
+        # 配置classpath
+        '''
+        "--username",
+        "${auth_player_name}",
+        "--version",
+        "${version_name}", 
+        "--gameDir",
+        "${game_directory}",
+        "--assetsDir",
+        "${assets_root}",
+        "--assetIndex",
+        "${assets_index_name}",
+        "--uuid",
+        "${auth_uuid}",
+        "--accessToken",
+        "${auth_access_token}",
+        "--clientId", n
+        "${clientid}",
+        "--xuid", n
+        "${auth_xuid}",
+        "--userType",
+        "${user_type}",
+        "--versionType",
+        "${version_type}",
+        '''
+        version_name = version
+        assets_root = os.path.join(game_dir, 'assets')
+        assets_index_name = version_json['assetIndex']['id']
+        userType = "msa"
+        version_type = version_json['type']
+        clientid = "00000000402b5328"
+
+        '''
+        "-Djava.library.path=${natives_directory}",
+        "-Djna.tmpdir=${natives_directory}",
+        "-Dorg.lwjgl.system.SharedLibraryExtractPath=${natives_directory}",
+        "-Dio.netty.native.workdir=${natives_directory}",
+        "-Dminecraft.launcher.brand=${launcher_name}",
+        "-Dminecraft.launcher.version=${launcher_version}",
+        "-cp",
+        "${classpath}"
+        '''
+        natives_directory = os.path.join(game_dir, 'versions', version, f'{version}-natives')
+        launcher_name = "FastCraftLauncher"
+        launcher_version = "1.0"
+        
+        libraries = [os.path.join(game_dir, 'libraries', lib['downloads']['artifact']['path']) for lib in version_json['libraries'] if 'downloads' in lib and 'artifact' in lib['downloads']]
+        libraries.append(f"{os.path.join(game_dir, 'versions', version, f'{version}.jar')}")
+        classpath = ";".join(libraries)
+
+        if "arguments" in version_json:
+            game_args = ""
+            java_args = " -XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true"
+            for arg in version_json["arguments"]["game"]:
+                if not isinstance(arg, dict):
+                    game_args += f" {arg}"
+            for arg in version_json["arguments"]["jvm"]:
+                if not isinstance(arg, dict):
+                    java_args += f" {arg}"
+            
+        if "minecraftArguments" in version_json:
+            game_args = version_json["minecraftArguments"]
+            java_args = " -XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true -Djava.library.path=${natives_directory}"
+
+        # 替换为实际值
+        game_args = game_args.replace("${auth_player_name}", auth_player_name)
+        game_args = game_args.replace("${version_name}", version_name)
+        game_args = game_args.replace("${game_directory}", game_dir)
+        game_args = game_args.replace("${assets_root}", assets_root)
+        game_args = game_args.replace("${assets_index_name}", assets_index_name)
+        game_args = game_args.replace("${auth_uuid}", uuid)
+        game_args = game_args.replace("${auth_access_token}", access_token)
+        game_args = game_args.replace("${clientid}", clientid)
+        game_args = game_args.replace("${auth_xuid}", "")
+        game_args = game_args.replace("${user_type}", userType)
+
+        java_args = java_args.replace("${natives_directory}", natives_directory)
+        java_args = java_args.replace("${launcher_name}", launcher_name)
+        java_args = java_args.replace("${launcher_version}", launcher_version)
+        java_args = java_args.replace("${classpath}", classpath)
         # 配置Minecraft参数
+        '''
         minecraft_args = [
             version_json['mainClass'],
             f"--username {username}",
@@ -66,25 +137,21 @@ async def generate_and_run_bat(java_path, game_dir, version, username, uuid, acc
             f"--userType mojang",
             f"--versionType release"
         ]
+        '''
+        
 
-        # 配置classpath
-        libraries = [os.path.join(game_dir, 'libraries', lib['downloads']['artifact']['path']) for lib in version_json['libraries'] if 'downloads' in lib and 'artifact' in lib['downloads']]
-        libraries.append(f"{os.path.join(game_dir, 'versions', version, f'{version}.jar')}")
-        classpath = ";".join(libraries)
+
 
         # 生成启动命令
-        command = [java_path] + jvm_args + ["-cp", classpath] + minecraft_args
-
-        # 将命令转换为字符串
-        command_str = " ".join(command)
+        command = java_path + java_args + " net.minecraft.client.main.Main "+ game_args
 
         # 将命令写入 .bat 文件，并添加调试信息
         bat_file_path = "launch_minecraft.bat"
         with open(bat_file_path, "w", encoding="utf-8") as bat_file:
             bat_file.write("@echo off\n")
             bat_file.write("echo Running Minecraft...\n")
-            bat_file.write("echo Command: " + command_str + "\n")
-            bat_file.write(command_str + "\n")
+            bat_file.write("echo Command: " + command + "\n")
+            bat_file.write(command + "\n")
             bat_file.write("pause\n")
         # 检测是否有options.txt文件
         options_path = os.path.join(game_dir, 'options.txt')
@@ -196,7 +263,7 @@ async def launch_game():
         java_path="E:\\zulu-21\\bin\\java.exe",
         game_dir=game_dir,
         version=version,
-        username=username,
+        auth_player_name=username,
         uuid=uuid,
         access_token=access_token
     )
