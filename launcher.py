@@ -102,10 +102,9 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
             for arg in version_json["arguments"]["jvm"]:
                 if not isinstance(arg, dict):
                     java_args += f" {arg}"
-            
-        if "minecraftArguments" in version_json:
+        elif "minecraftArguments" in version_json:
             game_args = version_json["minecraftArguments"]
-            java_args = " -XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true -Djava.library.path=${natives_directory}"
+            java_args = " -Djava.library.path=${natives_directory} -cp ${classpath}"
 
         # 替换为实际值
         game_args = game_args.replace("${auth_player_name}", auth_player_name)
@@ -260,7 +259,7 @@ async def launch_game():
     versions = os.listdir(os.path.join(game_dir, 'versions'))
     version = input("请输入Minecraft版本 " + str(versions) + " ：")
     await generate_and_run_bat(
-        java_path="E:\\zulu-21\\bin\\java.exe",
+        java_path="E:\\zulu-8\\bin\\java.exe",
         game_dir=game_dir,
         version=version,
         auth_player_name=username,
