@@ -1,10 +1,8 @@
 import os
 import json
-import platform
 import uuid as uuid_lib
 import subprocess
 import re
-import asyncio
 import aiohttp
 import auth
 
@@ -31,6 +29,13 @@ async def find_java():
             break
     return java_path
 
+def replace_and_clean_args(args, replacements):
+    for key, value in replacements.items():
+        args = args.replace(key, value)
+    # 删除未被替换的变量
+    args = re.sub(r'\$\{[^\}]+\}', '', args)
+    return args
+
 async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, uuid, access_token):
     async with aiohttp.ClientSession() as session:
         # 获取版本json文件
@@ -43,31 +48,6 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
         
         version_folder = os.path.join(game_dir, 'versions', version)
 
-        # 配置classpath
-        '''
-        "--username",
-        "${auth_player_name}",
-        "--version",
-        "${version_name}", 
-        "--gameDir",
-        "${game_directory}",
-        "--assetsDir",
-        "${assets_root}",
-        "--assetIndex",
-        "${assets_index_name}",
-        "--uuid",
-        "${auth_uuid}",
-        "--accessToken",
-        "${auth_access_token}",
-        "--clientId", n
-        "${clientid}",
-        "--xuid", n
-        "${auth_xuid}",
-        "--userType",
-        "${user_type}",
-        "--versionType",
-        "${version_type}",
-        '''
         version_name = version
         assets_root = os.path.join(game_dir, 'assets')
         assets_index_name = version_json['assetIndex']['id']
@@ -75,16 +55,6 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
         version_type = version_json['type']
         clientid = "00000000402b5328"
 
-        '''
-        "-Djava.library.path=${natives_directory}",
-        "-Djna.tmpdir=${natives_directory}",
-        "-Dorg.lwjgl.system.SharedLibraryExtractPath=${natives_directory}",
-        "-Dio.netty.native.workdir=${natives_directory}",
-        "-Dminecraft.launcher.brand=${launcher_name}",
-        "-Dminecraft.launcher.version=${launcher_version}",
-        "-cp",
-        "${classpath}"
-        '''
         natives_directory = os.path.join(game_dir, 'versions', version, f'{version}-natives')
         launcher_name = "FastCraftLauncher"
         launcher_version = "1.0"
@@ -106,45 +76,28 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
             game_args = version_json["minecraftArguments"]
             java_args = " -Djava.library.path=${natives_directory} -cp ${classpath}"
 
-        # 替换为实际值
-        game_args = game_args.replace("${auth_player_name}", auth_player_name)
-        game_args = game_args.replace("${version_name}", version_name)
-        game_args = game_args.replace("${game_directory}", game_dir)
-        game_args = game_args.replace("${assets_root}", assets_root)
-        game_args = game_args.replace("${assets_index_name}", assets_index_name)
-        game_args = game_args.replace("${auth_uuid}", uuid)
-        game_args = game_args.replace("${auth_access_token}", access_token)
-        game_args = game_args.replace("${clientid}", clientid)
-        game_args = game_args.replace("${auth_xuid}", "")
-        game_args = game_args.replace("${user_type}", userType)
+        replacements = {
+            "${auth_player_name}": auth_player_name,
+            "${version_name}": version_name,
+            "${game_directory}": game_dir,
+            "${assets_root}": assets_root,
+            "${assets_index_name}": assets_index_name,
+            "${auth_uuid}": uuid,
+            "${auth_access_token}": access_token,
+            "${clientid}": clientid,
+            "${auth_xuid}": "",
+            "${user_type}": userType,
+            "${natives_directory}": natives_directory,
+            "${launcher_name}": launcher_name,
+            "${launcher_version}": launcher_version,
+            "${classpath}": classpath
+        }
 
-        java_args = java_args.replace("${natives_directory}", natives_directory)
-        java_args = java_args.replace("${launcher_name}", launcher_name)
-        java_args = java_args.replace("${launcher_version}", launcher_version)
-        java_args = java_args.replace("${classpath}", classpath)
-        # 配置Minecraft参数
-        '''
-        minecraft_args = [
-            version_json['mainClass'],
-            f"--username {username}",
-            f"--version {version}",
-            f"--gameDir {game_dir}",
-            f"--assetsDir {os.path.join(game_dir, 'assets')}",
-            f"--assetIndex {version_json['assetIndex']['id']}",
-            f"--uuid {uuid}",
-            f"--accessToken {access_token}",
-            f"--userType mojang",
-            f"--versionType release"
-        ]
-        '''
-        
+        game_args = replace_and_clean_args(game_args, replacements)
+        java_args = replace_and_clean_args(java_args, replacements)
 
+        command = java_path + java_args + " net.minecraft.client.main.Main " + game_args
 
-
-        # 生成启动命令
-        command = java_path + java_args + " net.minecraft.client.main.Main "+ game_args
-
-        # 将命令写入 .bat 文件，并添加调试信息
         bat_file_path = "launch_minecraft.bat"
         with open(bat_file_path, "w", encoding="utf-8") as bat_file:
             bat_file.write("@echo off\n")
@@ -152,7 +105,7 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
             bat_file.write("echo Command: " + command + "\n")
             bat_file.write(command + "\n")
             bat_file.write("pause\n")
-        # 检测是否有options.txt文件
+
         options_path = os.path.join(game_dir, 'options.txt')
         if not os.path.exists(options_path):
             options = {
@@ -166,23 +119,21 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
                     options_file.write(f"{key}:{value}\n")
         print(f"Batch file created: {bat_file_path}")
 
-        # 运行 .bat 文件并将输出打印到控制台
         printed_logs = set()
         with subprocess.Popen([bat_file_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="latin-1") as proc:
             if proc.stdout:
                 print("Minecraft启动中...")
                 for line in proc.stdout:
-                    line = line.replace('\r\n', '\n').replace('\r', '\n')  # 处理不同的换行符
+                    line = line.replace('\r\n', '\n').replace('\r', '\n')
                     formatted_line = format_log4j_event(line, printed_logs)
                     if formatted_line:
                         print(formatted_line, end='')
 
-            # 等待子进程结束并获取输出
             stdout, stderr = proc.communicate()
             print("游戏进程已结束")
             if stdout:
                 for line in stdout.splitlines():
-                    line = line.replace('\r\n', '\n').replace('\r', '\n')  # 处理不同的换行符
+                    line = line.replace('\r\n', '\n').replace('\r', '\n')
                     formatted_line = format_log4j_event(line, printed_logs)
                     if formatted_line:
                         print(formatted_line, end='')
@@ -259,7 +210,7 @@ async def launch_game():
     versions = os.listdir(os.path.join(game_dir, 'versions'))
     version = input("请输入Minecraft版本 " + str(versions) + " ：")
     await generate_and_run_bat(
-        java_path="E:\\zulu-8\\bin\\java.exe",
+        java_path="D:\\Zulu\\zulu-8\\bin\\java.exe",
         game_dir=game_dir,
         version=version,
         auth_player_name=username,

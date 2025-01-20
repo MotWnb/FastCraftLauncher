@@ -1,0 +1,6 @@
+/.minecraft
+/__pycache__
+/FCL
+/logs
+/refresh_token.json
+/launch_minecraft.bat
