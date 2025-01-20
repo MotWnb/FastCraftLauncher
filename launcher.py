@@ -5,6 +5,7 @@ import subprocess
 import re
 import aiohttp
 import auth
+from java_finder import find_java_version
 
 def format_log4j_event(line, printed_logs):
     match = re.search(r'<log4j:Message><!\[CDATA\[(.*?)\]\]></log4j:Message>\s', line, re.DOTALL)
@@ -36,7 +37,7 @@ def replace_and_clean_args(args, replacements):
     args = re.sub(r'\$\{[^\}]+\}', '', args)
     return args
 
-async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, uuid, access_token):
+async def generate_and_run_bat(game_dir, version, auth_player_name, uuid, access_token):
     async with aiohttp.ClientSession() as session:
         # 获取版本json文件
         version_manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest.json"
@@ -90,12 +91,16 @@ async def generate_and_run_bat(java_path, game_dir, version, auth_player_name, u
             "${natives_directory}": natives_directory,
             "${launcher_name}": launcher_name,
             "${launcher_version}": launcher_version,
-            "${classpath}": classpath
+            "${classpath}": classpath,
+            "${version_type}": version_type
         }
 
         game_args = replace_and_clean_args(game_args, replacements)
         java_args = replace_and_clean_args(java_args, replacements)
 
+        java_version = str(version_json["javaVersion"]["majorVersion"])
+        java_path = find_java_version(java_version)
+        print(f"Java路径: {java_path}")
         command = java_path + java_args + " net.minecraft.client.main.Main " + game_args
 
         bat_file_path = "launch_minecraft.bat"
@@ -210,7 +215,6 @@ async def launch_game():
     versions = os.listdir(os.path.join(game_dir, 'versions'))
     version = input("请输入Minecraft版本 " + str(versions) + " ：")
     await generate_and_run_bat(
-        java_path="D:\\Zulu\\zulu-8\\bin\\java.exe",
         game_dir=game_dir,
         version=version,
         auth_player_name=username,
